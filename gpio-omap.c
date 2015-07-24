@@ -952,6 +952,22 @@ static int gpio_get(struct gpio_chip *chip, unsigned offset)
 		return _get_gpio_dataout(bank, offset);
 }
 
+static u32 gpio_get_batch(struct gpio_chip *chip, u32 gpios_mask)
+{
+	struct gpio_bank *bank;
+	bank = container_of(chip, struct gpio_bank, chip);
+	void __iomem *reg = bank->base + bank->regs->direction;
+	u32 l = readl_relaxed(reg);
+	u32 result = 0;
+	u32 mask;
+	mask = gpios_mask & l;
+	reg = bank->base + bank->regs->datain;
+	result = mask & readl_relaxed(reg);
+	mask = gpios_mask & ~l;
+	reg = bank->base + bank->regs->datout;
+	result |= mask & readl_relaxed(reg);	
+}
+
 static int gpio_output(struct gpio_chip *chip, unsigned offset, int value)
 {
 	struct gpio_bank *bank;
@@ -990,6 +1006,21 @@ static void gpio_set(struct gpio_chip *chip, unsigned offset, int value)
 	bank->set_dataout(bank, offset, value);
 	spin_unlock_irqrestore(&bank->lock, flags);
 }
+
+static void gpio_set_batch(struct gpio_chip *chip, u32 gpios_mask, u32 values_mask)
+{
+	struct gpio_bank *bank = container_of(chip, struct gpio_bank, chip);
+	void __iomem *reg = bank->base + bank->regs->dataout;
+	u32 l;
+	spin_lock_irqsave(&bank->lock, flags);
+	l = readl_relaxed(reg);
+	l &= ~gpios_mask;
+	l |= values_mask;
+	writel_relaxed(l, reg);
+	bank->context.dataout = l;	
+	spin_unlock_irqrestore(&bank->lock, flags);
+}
+
 
 /*---------------------------------------------------------------------*/
 
@@ -1084,9 +1115,11 @@ static void omap_gpio_chip_init(struct gpio_bank *bank, struct irq_chip *irqc)
 	bank->chip.free = omap_gpio_free;
 	bank->chip.direction_input = gpio_input;
 	bank->chip.get = gpio_get;
+	bank->chop.get_batch = gpio_get_batch;
 	bank->chip.direction_output = gpio_output;
 	bank->chip.set_debounce = gpio_debounce;
 	bank->chip.set = gpio_set;
+	bank->chip.set_batch = gpio_set_batch;
 	bank->chip.to_irq = omap_gpio_to_irq;
 	if (bank->is_mpuio) {
 		bank->chip.label = "mpuio";

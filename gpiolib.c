@@ -2155,6 +2155,129 @@ void gpiod_set_value(struct gpio_desc *desc, int value)
 EXPORT_SYMBOL_GPL(gpiod_set_value);
 
 /**
+*_gpio_set_batch_generic() - function chip->set_batch if it was not defined earlyer
+*
+*/
+
+
+static void _gpio_set_batch_generic(struct gpio_chip *chip, u32 gpios_mask, u32 values_mask)
+{
+	int i = 0;
+	while (gpios_mask) {
+		if (gpios_mask & 1) {
+			chip->set(chip, i, values_mask & 1);
+		}
+		i++;
+		gpios_mask >> 1;
+		values_mask >> 1;
+	}
+}
+
+/**
+*gpioa_set_value_() - set gpios array
+* @gpioa: array of gpios to set
+* @value: array of values to set
+* @lenght: number of gpios in array
+* It is assumed that the array gpioa is ordered, if not this function works longer
+*/
+void gpioa_set_value(unsigned int *gpioa, int *value, int lenght)
+{
+	struct gpio_chip *chip;
+	int i = 0;
+	u32 gpios_mask;
+	u32 values_mask;
+	unsigned int gpio, base, ngpio;
+	if (unlikely(!chip->set_batch)) chip->set_batch = _gpio_set_batch_generic;
+	while (i < lenght) {
+		gpio = gpioa[i]
+		chip = gpio_to_chip(gpio);
+		base = chip->base;
+		ngpio = chip->ngpio;
+		gpios_mask = 0;
+		values_mask = 0;
+		gpios_mask |= 1 << (gpio - base);
+		if (value[i]) {
+			values_mask |= 1 << (gpio - base);
+		}
+		WARN_ON (chip->can_sleep);
+		i++;
+		while ((i < lenght) && ((gpio = gpio[i]) > base) && (gpio - base < ngpio)) {
+			gpios_mask |= 1 << (gpio - base);
+			if (value[i]) {
+				values_mask |= 1 << (gpio - base);
+			}
+			i++;
+		}
+		chip->set_batch (chip, gpios_mask, values_mask);
+	}
+}
+EXPORT_SYMBOL_GPL(gpioa_set_value);
+
+/**
+*_gpio_get_batch_generic() - function chip->set_batch if it was not defined earlyer
+*
+*/
+
+
+static u32 _gpio_get_batch_generic(struct gpio_chip *chip, u32 gpios_mask)
+{
+	int i = 0;
+	u32 values_mask = 0;
+	while (gpios_mask) {
+		if (gpios_mask & 1) {
+			*values_mask |= chip->set(chip, i) << i;
+		}
+		i++;
+		gpios_mask >> 1;
+	}
+	return values_mask;
+}
+
+/**
+*gpioa_get_value_() - get values of gpios array
+* @gpioa: array of gpios to get
+* @value: array of values get
+* @lenght: number of gpios in array
+* It is assumed that the array gpioa is ordered, if not this function works longer
+*/
+void gpioa_get_value(unsigned int *gpioa, int *value, int lenght)
+{
+	struct gpio_chip *chip;
+	int i = 0, j;
+	u32 gpios_mask;
+	u32 values_mask;
+	unsigned int gpio, base, ngpio;
+
+	if (unlikely(!chip->get_batch)) chip->get_batch = _gpio_get_batch_generic;
+	while (i < lenght) {
+		j = i;
+		gpio = gpioa[i]
+		chip = gpio_to_chip(gpio);
+		base = chip->base;
+		ngpio = chip->ngpio;
+		gpios_mask = 0;
+		values_mask = 0;
+		gpios_mask |= 1 << (gpio - base);
+		WARN_ON (chip->can_sleep);
+		i++;
+		while ((i < lenght) && ((gpio = gpio[i]) > base) && (gpio - base < ngpio)) {
+			gpios_mask |= 1 << (gpio - base);
+			i++;
+		}
+		values_mask = chip->get_batch (chip, gpios_mask);
+		while (gpios_mask) {
+			if (gpios_mask & 1) {
+				value[j] = values_mask & 1;
+				j++;
+			}
+			gpios_mask >> 1;
+			values_mask >> 1;
+		}
+	}
+}
+EXPORT_SYMBOL_GPL(gpioa_get_value);
+
+/**
  * gpiod_cansleep() - report whether gpio value access may sleep
  * @desc: gpio to check
  *
